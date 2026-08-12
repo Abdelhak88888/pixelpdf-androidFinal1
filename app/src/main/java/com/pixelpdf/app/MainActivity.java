@@ -5,6 +5,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
 import android.provider.MediaStore;
 import android.util.Base64;
 import android.webkit.JavascriptInterface;
@@ -27,10 +28,9 @@ public class MainActivity extends AppCompatActivity {
         webView = new WebView(this);
         setContentView(webView);
         WebSettings s = webView.getSettings();
-        s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);
-        s.setAllowFileAccess(true);
-        s.setAllowContentAccess(true);
+        s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true);
+        s.setAllowFileAccess(true); s.setAllowContentAccess(true);
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         
         webView.addJavascriptInterface(new Object() {
             @JavascriptInterface
@@ -62,8 +62,40 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        webView.setWebViewClient(new WebViewClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                // محاولة إخفاء الـ Splash Screen برفق عند انتهاء التحميل
+                view.loadUrl("javascript:if(typeof hideSplash === 'function') hideSplash(); else { var s = document.getElementById('splash-screen'); if(s) s.style.display='none'; }");
+                
+                // حقن كود الترجمة والتحميل
+                view.loadUrl("javascript:(function() { " +
+                "  function getLang() { return document.querySelector('.lang-sel')?.value || localStorage.getItem('pixelpdf_lang') || 'en'; } " +
+                "  function getMsg() { " +
+                "    var l = getLang(); " +
+                "    if(l.toLowerCase().includes('ar')) return '✅ تم الحفظ بنجاح'; " +
+                "    if(l.toLowerCase().includes('fr')) return '✅ Enregistré مع succès'; " +
+                "    return '✅ File saved successfully'; " +
+                "  } " +
+                "  window.saveAs = function(b, n) { var r = new FileReader(); r.onloadend = function() { AndroidDownload.downloadFile(r.result, n, getMsg()); }; r.readAsDataURL(b); }; " +
+                "  var old = HTMLAnchorElement.prototype.click; " +
+                "  HTMLAnchorElement.prototype.click = function() { " +
+                "    if (this.href.startsWith('blob:') || this.download) { " +
+                "      var n = this.download || 'file'; fetch(this.href).then(r => r.blob()).then(b => { " +
+                "        var rd = new FileReader(); rd.onloadend = function() { AndroidDownload.downloadFile(rd.result, n, getMsg()); }; rd.readAsDataURL(b); " +
+                "      }); " +
+                "    } else old.call(this); " +
+                "  }; " +
+                "})()");
+            }
+        });
+
         webView.loadUrl("file:///android_asset/index.html");
+
+        // ضمانة نهائية: إخفاء الـ Splash Screen إجبارياً بعد 6 ثواني مهما وقع
+        new Handler().postDelayed(() -> {
+            webView.loadUrl("javascript:var s = document.getElementById('splash-screen'); if(s) s.style.display='none';");
+        }, 6000);
     }
 
     @Override
