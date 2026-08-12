@@ -1,4 +1,8 @@
-plugins { id 'com.android.application' }
+plugins {
+    id 'com.android.application'
+    id 'com.huawei.agconnect'
+}
+
 android {
     namespace 'com.pixelpdf.app'
     compileSdk 34
@@ -14,7 +18,11 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 }
+
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.9.0'
+    // Huawei SDKs
+    implementation 'com.huawei.hms:ads-lite:13.4.65.300'
+    implementation 'com.huawei.hms:iap:6.12.0.300'
 }
