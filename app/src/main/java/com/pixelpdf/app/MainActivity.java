@@ -1,6 +1,4 @@
-
 package com.pixelpdf.app;
-
 import android.content.ContentValues;
 import android.content.Intent;
 import android.net.Uri;
@@ -18,26 +16,17 @@ import android.webkit.WebViewClient;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import java.io.OutputStream;
-
 public class MainActivity extends AppCompatActivity {
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
-    private final static int FILE_CHOOSER_RESULT_CODE = 1;
-
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         webView = new WebView(this);
         setContentView(webView);
-
         WebSettings s = webView.getSettings();
-        s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);
-        s.setAllowFileAccess(true);
-        s.setAllowContentAccess(true);
-        s.setCacheMode(WebSettings.LOAD_DEFAULT);
-
-        // JavaScript Bridge for Downloads & Language Sync
+        s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true);
+        s.setAllowFileAccess(true); s.setAllowContentAccess(true);
         webView.addJavascriptInterface(new Object() {
             @JavascriptInterface
             public void downloadFile(String b64, String name, String msg) {
@@ -46,89 +35,72 @@ public class MainActivity extends AppCompatActivity {
                     byte[] bt = Base64.decode(b64, Base64.DEFAULT);
                     ContentValues v = new ContentValues();
                     v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
-                    v.put(MediaStore.MediaColumns.MIME_TYPE, name.endsWith(".pdf") ? "application/pdf" : "image/jpeg");
-                    if (Build.VERSION.SDK_INT >= 29) {
-                        v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
-                    }
+                    v.put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf");
+                    if (Build.VERSION.SDK_INT >= 29) v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
                     Uri u = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
                     if (u != null) {
                         OutputStream o = getContentResolver().openOutputStream(u);
-                        o.write(bt);
-                        o.close();
+                        o.write(bt); o.close();
                         runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
                     }
                 } catch (Exception e) {}
             }
         }, "AndroidDownload");
-
-        // Handle File Uploads (Multiple Support)
         webView.setWebChromeClient(new WebChromeClient() {
             public boolean onShowFileChooser(WebView w, ValueCallback<Uri[]> f, FileChooserParams p) {
-                if (filePathCallback != null) filePathCallback.onReceiveValue(null);
                 filePathCallback = f;
                 Intent i = p.createIntent();
                 i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-                try {
-                    startActivityForResult(Intent.createChooser(i, "Select Files"), FILE_CHOOSER_RESULT_CODE);
-                } catch (Exception e) {
-                    filePathCallback = null;
-                    return false;
-                }
+                startActivityForResult(Intent.createChooser(i, "Select Files"), 1);
                 return true;
             }
         });
-
-        // Intercept Blob Downloads and Sync Language
         webView.setWebViewClient(new WebViewClient() {
             public void onPageFinished(WebView v, String u) {
+                // كود جافا سكريبت شامل للتحميل والترجمة (حتى ديال المودال)
                 v.loadUrl("javascript:(function() { " +
+                "  function getLang() { return document.querySelector('.lang-sel')?.value || localStorage.getItem('pixelpdf_lang') || 'en'; } " +
                 "  function getMsg() { " +
-                "    var l = document.querySelector('.lang-sel')?.value || localStorage.getItem('pixelpdf_lang') || document.documentElement.lang || 'en'; " +
-                "    if(l.toLowerCase().includes('ar')) return '✅ تم حفظ الملف بنجاح'; " +
+                "    var l = getLang(); " +
+                "    if(l.toLowerCase().includes('ar')) return '✅ تم الحفظ بنجاح'; " +
                 "    if(l.toLowerCase().includes('fr')) return '✅ Enregistré avec succès'; " +
                 "    return '✅ File saved successfully'; " +
                 "  } " +
-                "  window.saveAs = function(b, n) { " +
-                "    var r = new FileReader(); " +
-                "    r.onloadend = function() { AndroidDownload.downloadFile(r.result, n, getMsg()); }; " +
-                "    r.readAsDataURL(b); " +
-                "  }; " +
+                "  function translateModal() { " +
+                "    var l = getLang(); " +
+                "    var isAr = l.toLowerCase().includes('ar'); " +
+                "    var isFr = l.toLowerCase().includes('fr'); " +
+                "    document.querySelectorAll('.modal-box').forEach(m => { " +
+                "      if(m.innerText.includes('شراء نقاط')) m.innerHTML = m.innerHTML.replace('شراء نقاط', isAr?'شراء نقاط':(isFr?'Acheter des crédits':'Buy Credits')); " +
+                "      if(m.innerText.includes('نقطة')) m.innerHTML = m.innerHTML.replace(/نقطة/g, isAr?'نقطة':(isFr?'Crédits':'Credits')); " +
+                "      if(m.innerText.includes('الدفع آمن')) m.innerHTML = m.innerHTML.replace('الدفع آمن عبر Google Play', isAr?'الدفع آمن عبر Google Play':(isFr?'Paiement sécurisé via Google Play':'Secure payment via Google Play')); " +
+                "    }); " +
+                "  } " +
+                "  setInterval(translateModal, 1000); " +
+                "  window.saveAs = function(b, n) { var r = new FileReader(); r.onloadend = function() { AndroidDownload.downloadFile(r.result, n, getMsg()); }; r.readAsDataURL(b); }; " +
                 "  var old = HTMLAnchorElement.prototype.click; " +
                 "  HTMLAnchorElement.prototype.click = function() { " +
                 "    if (this.href.startsWith('blob:') || this.download) { " +
-                "      var n = this.download || 'file'; " +
-                "      fetch(this.href).then(r => r.blob()).then(b => { " +
-                "        var rd = new FileReader(); " +
-                "        rd.onloadend = function() { AndroidDownload.downloadFile(rd.result, n, getMsg()); }; " +
-                "        rd.readAsDataURL(b); " +
+                "      var n = this.download || 'file'; fetch(this.href).then(r => r.blob()).then(b => { " +
+                "        var rd = new FileReader(); rd.onloadend = function() { AndroidDownload.downloadFile(rd.result, n, getMsg()); }; rd.readAsDataURL(b); " +
                 "      }); " +
                 "    } else old.call(this); " +
                 "  }; " +
                 "})()");
             }
         });
-
         webView.loadUrl("file:///android_asset/index.html");
     }
-
-    @Override
     protected void onActivityResult(int r, int c, Intent d) {
-        if (r == FILE_CHOOSER_RESULT_CODE) {
-            if (filePathCallback == null) return;
+        if (r == 1 && filePathCallback != null) {
             Uri[] res = null;
             if (c == RESULT_OK && d != null) {
                 if (d.getClipData() != null) {
-                    int cnt = d.getClipData().getItemCount();
-                    res = new Uri[cnt];
-                    for (int i = 0; i < cnt; i++) res[i] = d.getClipData().getItemAt(i).getUri();
-                } else if (d.getData() != null) {
-                    res = new Uri[]{d.getData()};
-                }
+                    res = new Uri[d.getClipData().getItemCount()];
+                    for (int i=0; i<d.getClipData().getItemCount(); i++) res[i] = d.getClipData().getItemAt(i).getUri();
+                } else if (d.getData() != null) res = new Uri[]{d.getData()};
             }
-            filePathCallback.onReceiveValue(res);
-            filePathCallback = null;
-        } else {
-            super.onActivityResult(r, c, d);
+            filePathCallback.onReceiveValue(res); filePathCallback = null;
         }
     }
 }
