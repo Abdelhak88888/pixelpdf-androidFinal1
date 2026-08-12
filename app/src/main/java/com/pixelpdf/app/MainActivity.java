@@ -1,10 +1,12 @@
 package com.pixelpdf.app;
+
 import android.content.ContentValues;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
 import android.provider.MediaStore;
 import android.util.Base64;
 import android.webkit.JavascriptInterface;
@@ -27,7 +29,6 @@ public class MainActivity extends AppCompatActivity {
         webView = new WebView(this);
         setContentView(webView);
         
-        // ضمان تفاعل المستخدم مع الصفحة
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
         webView.setClickable(true);
@@ -46,7 +47,6 @@ public class MainActivity extends AppCompatActivity {
             s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         }
         
-        // قنطرة التحميل واللغات
         webView.addJavascriptInterface(new Object() {
             @JavascriptInterface
             public void downloadFile(String b64, String name, String msg) {
@@ -55,7 +55,7 @@ public class MainActivity extends AppCompatActivity {
                     byte[] bt = Base64.decode(b64, Base64.DEFAULT);
                     ContentValues v = new ContentValues();
                     v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
-                    v.put(MediaStore.MediaColumns.MIME_TYPE, name.endsWith(".pdf")?"application/pdf":"image/jpeg");
+                    v.put(MediaStore.MediaColumns.MIME_TYPE, name.endsWith(".pdf") ? "application/pdf" : "image/jpeg");
                     if (Build.VERSION.SDK_INT >= 29) v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
                     Uri u = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
                     if (u != null) {
@@ -63,12 +63,14 @@ public class MainActivity extends AppCompatActivity {
                         o.write(bt); o.close();
                         runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
                     }
-                } catch (Exception e) {}
+                } catch (Exception e) {
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "Download Error", Toast.LENGTH_SHORT).show());
+                }
             }
         }, "AndroidDownload");
 
-        // دعم اختيار ملفات متعددة
         webView.setWebChromeClient(new WebChromeClient() {
+            @Override
             public boolean onShowFileChooser(WebView w, ValueCallback<Uri[]> f, FileChooserParams p) {
                 filePathCallback = f;
                 Intent i = p.createIntent();
@@ -81,24 +83,29 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
-                // كود ذكي يضمن إخفاء شاشة البداية وربط التحميل
+                // Bridge smartDownload and ensure splash is hidden
                 String js = "javascript:(function() { " +
                 "  function fixApp() { " +
                 "    var s = document.getElementById('splash-screen'); " +
                 "    if(s) { s.style.display='none'; s.style.pointerEvents='none'; } " +
                 "    window.smartDownload = function(dataUrl, filename) { " +
-                "      var l = document.querySelector('.lang-sel')?.value || 'en'; " +
+                "      var l = document.querySelector('.lang-sel')?.value || localStorage.getItem('pixelpdf_lang') || 'en'; " +
                 "      var m = l.includes('ar') ? '✅ تم حفظ الملف بنجاح' : (l.includes('fr') ? '✅ Enregistré avec succès' : '✅ File saved successfully'); " +
                 "      AndroidDownload.downloadFile(dataUrl, filename, m); " +
                 "    }; " +
                 "  } " +
-                "  fixApp(); setInterval(fixApp, 1500); " +
+                "  fixApp(); setInterval(fixApp, 2000); " +
                 "})(); void(0);";
                 view.loadUrl(js);
             }
         });
 
         webView.loadUrl("file:///android_asset/index.html");
+        
+        // Final safety hide splash
+        new Handler().postDelayed(() -> {
+            webView.loadUrl("javascript:(function(){ var s = document.getElementById('splash-screen'); if(s) s.style.display='none'; })(); void(0);");
+        }, 6000);
     }
 
     @Override
@@ -112,6 +119,8 @@ public class MainActivity extends AppCompatActivity {
                 } else if (d.getData() != null) res = new Uri[]{d.getData()};
             }
             filePathCallback.onReceiveValue(res); filePathCallback = null;
+        } else {
+            super.onActivityResult(r, c, d);
         }
     }
 }
