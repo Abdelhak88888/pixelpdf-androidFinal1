@@ -1,5 +1,4 @@
 package com.pixelpdf.app;
-
 import android.content.ContentValues;
 import android.content.Intent;
 import android.net.Uri;
@@ -63,9 +62,7 @@ public class MainActivity extends AppCompatActivity {
                         o.write(bt); o.close();
                         runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
                     }
-                } catch (Exception e) {
-                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "Download Error", Toast.LENGTH_SHORT).show());
-                }
+                } catch (Exception e) {}
             }
         }, "AndroidDownload");
 
@@ -83,7 +80,6 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
-                // Bridge smartDownload and ensure splash is hidden
                 String js = "javascript:(function() { " +
                 "  function fixApp() { " +
                 "    var s = document.getElementById('splash-screen'); " +
@@ -93,6 +89,17 @@ public class MainActivity extends AppCompatActivity {
                 "      var m = l.includes('ar') ? '✅ تم حفظ الملف بنجاح' : (l.includes('fr') ? '✅ Enregistré avec succès' : '✅ File saved successfully'); " +
                 "      AndroidDownload.downloadFile(dataUrl, filename, m); " +
                 "    }; " +
+                "    " +
+                "    var lang = document.querySelector('.lang-sel')?.value || localStorage.getItem('pixelpdf_lang') || 'en'; " +
+                "    var isAr = lang.toLowerCase().includes('ar'); " +
+                "    var isFr = lang.toLowerCase().includes('fr'); " +
+                "    var els = document.querySelectorAll('.modal-box div, .modal-box button'); " +
+                "    els.forEach(function(el) { " +
+                "      var t = el.innerText; " +
+                "      if(t.includes('شراء نقاط')) el.innerText = isAr ? '💎 شراء نقاط' : (isFr ? '💎 Acheter des crédits' : '💎 Buy Credits'); " +
+                "      if(t.includes('نقطة')) el.innerText = t.replace('نقطة', isAr ? 'نقطة' : (isFr ? 'Crédits' : 'Credits')); " +
+                "      if(t.includes('الدفع آمن')) el.innerText = isAr ? 'الدفع آمن عبر Google Play' : (isFr ? 'Paiement sécurisé via Google Play' : 'Secure payment via Google Play'); " +
+                "    }); " +
                 "  } " +
                 "  fixApp(); setInterval(fixApp, 2000); " +
                 "})(); void(0);";
@@ -102,7 +109,6 @@ public class MainActivity extends AppCompatActivity {
 
         webView.loadUrl("file:///android_asset/index.html");
         
-        // Final safety hide splash
         new Handler().postDelayed(() -> {
             webView.loadUrl("javascript:(function(){ var s = document.getElementById('splash-screen'); if(s) s.style.display='none'; })(); void(0);");
         }, 6000);
@@ -119,8 +125,6 @@ public class MainActivity extends AppCompatActivity {
                 } else if (d.getData() != null) res = new Uri[]{d.getData()};
             }
             filePathCallback.onReceiveValue(res); filePathCallback = null;
-        } else {
-            super.onActivityResult(r, c, d);
         }
     }
 }
