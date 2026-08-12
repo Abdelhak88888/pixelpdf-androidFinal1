@@ -27,13 +27,17 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         webView = new WebView(this);
         setContentView(webView);
-        WebSettings s = webView.getSettings();
-        s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true);
-        s.setAllowFileAccess(true); s.setAllowContentAccess(true);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        }
         
+        WebSettings s = webView.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setAllowFileAccess(true);
+        s.setAllowContentAccess(true);
+        s.setDatabaseEnabled(true);
+        s.setLoadWithOverviewMode(true);
+        s.setUseWideViewPort(true);
+        
+        // قنطرة التحميل
         webView.addJavascriptInterface(new Object() {
             @JavascriptInterface
             public void downloadFile(String b64, String name, String msg) {
@@ -42,7 +46,7 @@ public class MainActivity extends AppCompatActivity {
                     byte[] bt = Base64.decode(b64, Base64.DEFAULT);
                     ContentValues v = new ContentValues();
                     v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
-                    v.put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf");
+                    v.put(MediaStore.MediaColumns.MIME_TYPE, name.endsWith(".pdf")?"application/pdf":"image/jpeg");
                     if (Build.VERSION.SDK_INT >= 29) v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
                     Uri u = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
                     if (u != null) {
@@ -54,6 +58,7 @@ public class MainActivity extends AppCompatActivity {
             }
         }, "AndroidDownload");
 
+        // دعم اختيار ملفات متعددة
         webView.setWebChromeClient(new WebChromeClient() {
             public boolean onShowFileChooser(WebView w, ValueCallback<Uri[]> f, FileChooserParams p) {
                 filePathCallback = f;
@@ -67,35 +72,24 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
-                // منع الـ "none" باستعمال void(0)
-                view.loadUrl("javascript:(function(){ if(typeof hideSplash === 'function') hideSplash(); else { var s = document.getElementById('splash-screen'); if(s) s.style.display='none'; } })(); void(0);");
-                
-                view.loadUrl("javascript:(function() { " +
-                "  function getLang() { return document.querySelector('.lang-sel')?.value || localStorage.getItem('pixelpdf_lang') || 'en'; } " +
-                "  function getMsg() { " +
-                "    var l = getLang(); " +
-                "    if(l.toLowerCase().includes('ar')) return '✅ تم الحفظ بنجاح'; " +
-                "    if(l.toLowerCase().includes('fr')) return '✅ Enregistré avec succès'; " +
-                "    return '✅ File saved successfully'; " +
-                "  } " +
-                "  window.saveAs = function(b, n) { var r = new FileReader(); r.onloadend = function() { AndroidDownload.downloadFile(r.result, n, getMsg()); }; r.readAsDataURL(b); }; " +
-                "  var old = HTMLAnchorElement.prototype.click; " +
-                "  HTMLAnchorElement.prototype.click = function() { " +
-                "    if (this.href.startsWith('blob:') || this.download) { " +
-                "      var n = this.download || 'file'; fetch(this.href).then(r => r.blob()).then(b => { " +
-                "        var rd = new FileReader(); rd.onloadend = function() { AndroidDownload.downloadFile(rd.result, n, getMsg()); }; rd.readAsDataURL(b); " +
-                "      }); " +
-                "    } else old.call(this); " +
+                // 1. إخفاء الـ Splash Screen ومسحها من الـ DOM باش ما تغطي على الأزرار
+                view.loadUrl("javascript:(function(){ " +
+                "  var s = document.getElementById('splash-screen'); " +
+                "  if(s) { s.style.display='none'; s.parentNode.removeChild(s); } " +
+                "})(); void(0);");
+
+                // 2. ربط وظيفة التحميل الأصلية بالقنطرة ديالنا (أحسن طريقة)
+                view.loadUrl("javascript:(function(){ " +
+                "  window.smartDownload = function(dataUrl, filename) { " +
+                "    var l = document.querySelector('.lang-sel')?.value || 'en'; " +
+                "    var m = l.includes('ar') ? '✅ تم حفظ الملف بنجاح' : (l.includes('fr') ? '✅ Enregistré avec succès' : '✅ File saved successfully'); " +
+                "    AndroidDownload.downloadFile(dataUrl, filename, m); " +
                 "  }; " +
                 "})(); void(0);");
             }
         });
 
         webView.loadUrl("file:///android_asset/index.html");
-
-        new Handler().postDelayed(() -> {
-            webView.loadUrl("javascript:(function(){ var s = document.getElementById('splash-screen'); if(s) s.style.display='none'; })(); void(0);");
-        }, 5000);
     }
 
     @Override
