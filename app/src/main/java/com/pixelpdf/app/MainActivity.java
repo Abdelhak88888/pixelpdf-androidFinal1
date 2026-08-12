@@ -93,12 +93,12 @@ public class MainActivity extends AppCompatActivity {
                 "    var lang = document.querySelector('.lang-sel')?.value || localStorage.getItem('pixelpdf_lang') || 'en'; " +
                 "    var isAr = lang.toLowerCase().includes('ar'); " +
                 "    var isFr = lang.toLowerCase().includes('fr'); " +
-                "    var els = document.querySelectorAll('.modal-box div, .modal-box button'); " +
-                "    els.forEach(function(el) { " +
-                "      var t = el.innerText; " +
-                "      if(t.includes('شراء نقاط')) el.innerText = isAr ? '💎 شراء نقاط' : (isFr ? '💎 Acheter des crédits' : '💎 Buy Credits'); " +
-                "      if(t.includes('نقطة')) el.innerText = t.replace('نقطة', isAr ? 'نقطة' : (isFr ? 'Crédits' : 'Credits')); " +
-                "      if(t.includes('الدفع آمن')) el.innerText = isAr ? 'الدفع آمن عبر Google Play' : (isFr ? 'Paiement sécurisé via Google Play' : 'Secure payment via Google Play'); " +
+                "    document.querySelectorAll('.modal-box *').forEach(function(el) { " +
+                "      if (el.children.length > 0) return; " +
+                "      var t = el.innerHTML; " +
+                "      if(t.includes('شراء نقاط')) el.innerHTML = isAr ? '💎 شراء نقاط' : (isFr ? '💎 Acheter des crédits' : '💎 Buy Credits'); " +
+                "      if(t.includes('نقطة')) el.innerHTML = t.replace('نقطة', isAr ? 'نقطة' : (isFr ? 'Crédits' : 'Credits')); " +
+                "      if(t.includes('الدفع آمن')) el.innerHTML = isAr ? 'الدفع آمن عبر Google Play' : (isFr ? 'Paiement sécurisé via Google Play' : 'Secure payment via Google Play'); " +
                 "    }); " +
                 "  } " +
                 "  fixApp(); setInterval(fixApp, 2000); " +
