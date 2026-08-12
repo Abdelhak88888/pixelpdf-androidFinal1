@@ -30,7 +30,9 @@ public class MainActivity extends AppCompatActivity {
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true);
         s.setAllowFileAccess(true); s.setAllowContentAccess(true);
-        s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        }
         
         webView.addJavascriptInterface(new Object() {
             @JavascriptInterface
@@ -65,16 +67,15 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
-                // محاولة إخفاء الـ Splash Screen برفق عند انتهاء التحميل
-                view.loadUrl("javascript:if(typeof hideSplash === 'function') hideSplash(); else { var s = document.getElementById('splash-screen'); if(s) s.style.display='none'; }");
+                // منع الـ "none" باستعمال void(0)
+                view.loadUrl("javascript:(function(){ if(typeof hideSplash === 'function') hideSplash(); else { var s = document.getElementById('splash-screen'); if(s) s.style.display='none'; } })(); void(0);");
                 
-                // حقن كود الترجمة والتحميل
                 view.loadUrl("javascript:(function() { " +
                 "  function getLang() { return document.querySelector('.lang-sel')?.value || localStorage.getItem('pixelpdf_lang') || 'en'; } " +
                 "  function getMsg() { " +
                 "    var l = getLang(); " +
                 "    if(l.toLowerCase().includes('ar')) return '✅ تم الحفظ بنجاح'; " +
-                "    if(l.toLowerCase().includes('fr')) return '✅ Enregistré مع succès'; " +
+                "    if(l.toLowerCase().includes('fr')) return '✅ Enregistré avec succès'; " +
                 "    return '✅ File saved successfully'; " +
                 "  } " +
                 "  window.saveAs = function(b, n) { var r = new FileReader(); r.onloadend = function() { AndroidDownload.downloadFile(r.result, n, getMsg()); }; r.readAsDataURL(b); }; " +
@@ -86,16 +87,15 @@ public class MainActivity extends AppCompatActivity {
                 "      }); " +
                 "    } else old.call(this); " +
                 "  }; " +
-                "})()");
+                "})(); void(0);");
             }
         });
 
         webView.loadUrl("file:///android_asset/index.html");
 
-        // ضمانة نهائية: إخفاء الـ Splash Screen إجبارياً بعد 6 ثواني مهما وقع
         new Handler().postDelayed(() -> {
-            webView.loadUrl("javascript:var s = document.getElementById('splash-screen'); if(s) s.style.display='none';");
-        }, 6000);
+            webView.loadUrl("javascript:(function(){ var s = document.getElementById('splash-screen'); if(s) s.style.display='none'; })(); void(0);");
+        }, 5000);
     }
 
     @Override
