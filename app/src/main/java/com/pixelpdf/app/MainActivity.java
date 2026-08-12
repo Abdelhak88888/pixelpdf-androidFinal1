@@ -31,11 +31,23 @@ public class MainActivity extends AppCompatActivity {
         webView = new WebView(this);
         setContentView(webView);
         
+        webView.setFocusable(true);
+        webView.setFocusableInTouchMode(true);
+        webView.setClickable(true);
+        
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setAllowFileAccess(true);
         s.setAllowContentAccess(true);
+        s.setDatabaseEnabled(true);
+        s.setLoadWithOverviewMode(true);
+        s.setUseWideViewPort(true);
+        s.setJavaScriptCanOpenWindowsAutomatically(true);
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        }
         
         webView.addJavascriptInterface(new Object() {
             @JavascriptInterface
@@ -61,8 +73,12 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     String msg = type.equals("PRO") ? "Connecting to Huawei IAP for PRO Upgrade..." : "Connecting to Huawei IAP for Credits...";
                     Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
-                    // هنا سيتم استدعاء نظام الدفع الفعلي لهواوي
                 });
+            }
+
+            @JavascriptInterface
+            public void showToast(String msg) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
             }
         }, "AndroidBridge");
 
@@ -87,19 +103,19 @@ public class MainActivity extends AppCompatActivity {
                 "    " +
                 "    window.smartDownload = function(dataUrl, filename) { " +
                 "      var l = document.querySelector('.lang-sel')?.value || 'en'; " +
-                "      var m = l.includes('ar') ? '✅ تم حفظ الملف بنجاح' : (l.includes('fr') ? '✅ Enregistré مع succès' : '✅ File saved successfully'); " +
+                "      var m = l.includes('ar') ? '✅ تم حفظ الملف بنجاح' : (l.includes('fr') ? '✅ Enregistré avec succès' : '✅ File saved successfully'); " +
                 "      AndroidBridge.downloadFile(dataUrl, filename, m); " +
                 "    }; " +
                 "    " +
-                "    /* اعتراض عملية الشراء */ " +
-                "    window.buyCredits = function() { AndroidBridge.startIAP('CREDITS'); }; " +
+                "    /* تعطيل وظائف الشراء الأصلية وربطها بهواوي */ " +
+                "    window.simulateUpgrade = function() { AndroidBridge.startIAP('PRO'); }; " +
+                "    window.buyCredits = function(amt, prc) { AndroidBridge.startIAP('CREDITS'); }; " +
                 "    " +
-                "    /* اعتراض عملية الترقية لـ PRO ومنع الكود الأصلي من التنفيذ مباشرة */ " +
-                "    var proBtn = document.querySelector('.modal-btn, button[onclick*=\"upgrade\"]'); " +
-                "    if(proBtn && !proBtn.getAttribute('data-bound')) { " +
-                "      proBtn.onclick = function(e) { e.preventDefault(); e.stopPropagation(); AndroidBridge.startIAP('PRO'); return false; }; " +
-                "      proBtn.setAttribute('data-bound', 'true'); " +
-                "    } " +
+                "    /* تحويل التنبيهات المزعجة لرسائل Toast احترافية */ " +
+                "    window.alert = function(msg) { " +
+                "      if(msg.includes('Welcome to PRO')) return; " +
+                "      AndroidBridge.showToast(msg); " +
+                "    }; " +
                 "    " +
                 "    /* ترجمة المودال */ " +
                 "    var lang = document.querySelector('.lang-sel')?.value || 'en'; " +
