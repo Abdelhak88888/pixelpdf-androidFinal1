@@ -19,8 +19,6 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import java.io.OutputStream;
 import com.huawei.hms.ads.HwAds;
-import com.huawei.hms.iap.Iap;
-import com.huawei.hms.iap.IapClient;
 
 public class MainActivity extends AppCompatActivity {
     private WebView webView;
@@ -29,18 +27,27 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        
-        // تفعيل إشهارات هواوي
         HwAds.init(this);
-        
         webView = new WebView(this);
         setContentView(webView);
+        
+        webView.setFocusable(true);
+        webView.setFocusableInTouchMode(true);
+        webView.setClickable(true);
         
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setAllowFileAccess(true);
         s.setAllowContentAccess(true);
+        s.setDatabaseEnabled(true);
+        s.setLoadWithOverviewMode(true);
+        s.setUseWideViewPort(true);
+        s.setJavaScriptCanOpenWindowsAutomatically(true);
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        }
         
         webView.addJavascriptInterface(new Object() {
             @JavascriptInterface
@@ -63,9 +70,7 @@ public class MainActivity extends AppCompatActivity {
             
             @JavascriptInterface
             public void buyCredits() {
-                // كود استدعاء نظام الشراء من هواوي
-                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Connecting to Huawei IAP...", Toast.LENGTH_SHORT).show());
-                // هنا سيتم استدعاء نافذة الدفع الخاصة بهواوي
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Connecting to Huawei IAP...", Toast.LENGTH_LONG).show());
             }
         }, "AndroidDownload");
 
@@ -88,11 +93,31 @@ public class MainActivity extends AppCompatActivity {
                 "    var s = document.getElementById('splash-screen'); " +
                 "    if(s) { s.style.display='none'; s.style.pointerEvents='none'; } " +
                 "    window.smartDownload = function(dataUrl, filename) { " +
-                "      var l = document.querySelector('.lang-sel')?.value || 'en'; " +
+                "      var l = document.querySelector('.lang-sel')?.value || localStorage.getItem('pixelpdf_lang') || 'en'; " +
                 "      var m = l.includes('ar') ? '✅ تم حفظ الملف بنجاح' : (l.includes('fr') ? '✅ Enregistré avec succès' : '✅ File saved successfully'); " +
                 "      AndroidDownload.downloadFile(dataUrl, filename, m); " +
                 "    }; " +
                 "    window.buyCredits = function() { AndroidDownload.buyCredits(); }; " +
+                "    " +
+                "    var lang = document.querySelector('.lang-sel')?.value || localStorage.getItem('pixelpdf_lang') || 'en'; " +
+                "    var isAr = lang.toLowerCase().includes('ar'); " +
+                "    var isFr = lang.toLowerCase().includes('fr'); " +
+                "    " +
+                "    document.querySelectorAll('.modal-box, .modal-overlay').forEach(function(modal) { " +
+                "      var html = modal.innerHTML; " +
+                "      if(html.includes('شراء نقاط')) modal.innerHTML = html.replace(/شراء نقاط/g, isAr ? 'شراء نقاط' : (isFr ? 'Acheter des crédits' : 'Buy Credits')); " +
+                "      html = modal.innerHTML; " +
+                "      if(html.includes('نقطة')) modal.innerHTML = html.replace(/نقطة/g, isAr ? 'نقطة' : (isFr ? 'Crédits' : 'Credits')); " +
+                "      html = modal.innerHTML; " +
+                "      if(html.includes('الدفع آمن')) modal.innerHTML = html.replace(/الدفع آمن عبر Google Play/g, isAr ? 'الدفع آمن عبر Huawei AppGallery' : (isFr ? 'Paiement sécurisé via Huawei' : 'Secure payment via Huawei')); " +
+                "    }); " +
+                "    " +
+                "    window.alert = function(msg) { " +
+                "      if(msg.includes('Welcome to PRO')) { " +
+                "        var m = isAr ? '🚀 مرحباً بك في النسخة الاحترافية!' : (isFr ? '🚀 Bienvenue dans la version PRO!' : '🚀 Welcome to PRO!'); " +
+                "        AndroidDownload.downloadFile('', '', m); " +
+                "      } else { console.log(msg); } " +
+                "    }; " +
                 "  } " +
                 "  fixApp(); setInterval(fixApp, 2000); " +
                 "})(); void(0);";
@@ -101,6 +126,9 @@ public class MainActivity extends AppCompatActivity {
         });
 
         webView.loadUrl("file:///android_asset/index.html");
+        new Handler().postDelayed(() -> {
+            webView.loadUrl("javascript:(function(){ var s = document.getElementById('splash-screen'); if(s) s.style.display='none'; })(); void(0);");
+        }, 6000);
     }
 
     @Override
