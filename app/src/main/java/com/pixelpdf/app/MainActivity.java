@@ -5,7 +5,6 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.Handler;
 import android.provider.MediaStore;
 import android.util.Base64;
 import android.webkit.JavascriptInterface;
@@ -28,6 +27,11 @@ public class MainActivity extends AppCompatActivity {
         webView = new WebView(this);
         setContentView(webView);
         
+        // ضمان تفاعل المستخدم مع الصفحة
+        webView.setFocusable(true);
+        webView.setFocusableInTouchMode(true);
+        webView.setClickable(true);
+        
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -36,8 +40,13 @@ public class MainActivity extends AppCompatActivity {
         s.setDatabaseEnabled(true);
         s.setLoadWithOverviewMode(true);
         s.setUseWideViewPort(true);
+        s.setJavaScriptCanOpenWindowsAutomatically(true);
         
-        // قنطرة التحميل
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        }
+        
+        // قنطرة التحميل واللغات
         webView.addJavascriptInterface(new Object() {
             @JavascriptInterface
             public void downloadFile(String b64, String name, String msg) {
@@ -72,20 +81,20 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
-                // 1. إخفاء الـ Splash Screen ومسحها من الـ DOM باش ما تغطي على الأزرار
-                view.loadUrl("javascript:(function(){ " +
-                "  var s = document.getElementById('splash-screen'); " +
-                "  if(s) { s.style.display='none'; s.parentNode.removeChild(s); } " +
-                "})(); void(0);");
-
-                // 2. ربط وظيفة التحميل الأصلية بالقنطرة ديالنا (أحسن طريقة)
-                view.loadUrl("javascript:(function(){ " +
-                "  window.smartDownload = function(dataUrl, filename) { " +
-                "    var l = document.querySelector('.lang-sel')?.value || 'en'; " +
-                "    var m = l.includes('ar') ? '✅ تم حفظ الملف بنجاح' : (l.includes('fr') ? '✅ Enregistré avec succès' : '✅ File saved successfully'); " +
-                "    AndroidDownload.downloadFile(dataUrl, filename, m); " +
-                "  }; " +
-                "})(); void(0);");
+                // كود ذكي يضمن إخفاء شاشة البداية وربط التحميل
+                String js = "javascript:(function() { " +
+                "  function fixApp() { " +
+                "    var s = document.getElementById('splash-screen'); " +
+                "    if(s) { s.style.display='none'; s.style.pointerEvents='none'; } " +
+                "    window.smartDownload = function(dataUrl, filename) { " +
+                "      var l = document.querySelector('.lang-sel')?.value || 'en'; " +
+                "      var m = l.includes('ar') ? '✅ تم حفظ الملف بنجاح' : (l.includes('fr') ? '✅ Enregistré avec succès' : '✅ File saved successfully'); " +
+                "      AndroidDownload.downloadFile(dataUrl, filename, m); " +
+                "    }; " +
+                "  } " +
+                "  fixApp(); setInterval(fixApp, 1500); " +
+                "})(); void(0);";
+                view.loadUrl(js);
             }
         });
 
