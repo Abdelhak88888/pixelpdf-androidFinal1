@@ -16,17 +16,22 @@ import android.webkit.WebViewClient;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import java.io.OutputStream;
+
 public class MainActivity extends AppCompatActivity {
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         webView = new WebView(this);
         setContentView(webView);
         WebSettings s = webView.getSettings();
-        s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true);
-        s.setAllowFileAccess(true); s.setAllowContentAccess(true);
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setAllowFileAccess(true);
+        s.setAllowContentAccess(true);
+        
         webView.addJavascriptInterface(new Object() {
             @JavascriptInterface
             public void downloadFile(String b64, String name, String msg) {
@@ -46,6 +51,7 @@ public class MainActivity extends AppCompatActivity {
                 } catch (Exception e) {}
             }
         }, "AndroidDownload");
+
         webView.setWebChromeClient(new WebChromeClient() {
             public boolean onShowFileChooser(WebView w, ValueCallback<Uri[]> f, FileChooserParams p) {
                 filePathCallback = f;
@@ -55,42 +61,12 @@ public class MainActivity extends AppCompatActivity {
                 return true;
             }
         });
-        webView.setWebViewClient(new WebViewClient() {
-            public void onPageFinished(WebView v, String u) {
-                // كود جافا سكريبت شامل للتحميل والترجمة (حتى ديال المودال)
-                v.loadUrl("javascript:(function() { " +
-                "  function getLang() { return document.querySelector('.lang-sel')?.value || localStorage.getItem('pixelpdf_lang') || 'en'; } " +
-                "  function getMsg() { " +
-                "    var l = getLang(); " +
-                "    if(l.toLowerCase().includes('ar')) return '✅ تم الحفظ بنجاح'; " +
-                "    if(l.toLowerCase().includes('fr')) return '✅ Enregistré avec succès'; " +
-                "    return '✅ File saved successfully'; " +
-                "  } " +
-                "  function translateModal() { " +
-                "    var l = getLang(); " +
-                "    var isAr = l.toLowerCase().includes('ar'); " +
-                "    var isFr = l.toLowerCase().includes('fr'); " +
-                "    document.querySelectorAll('.modal-box').forEach(m => { " +
-                "      if(m.innerText.includes('شراء نقاط')) m.innerHTML = m.innerHTML.replace('شراء نقاط', isAr?'شراء نقاط':(isFr?'Acheter des crédits':'Buy Credits')); " +
-                "      if(m.innerText.includes('نقطة')) m.innerHTML = m.innerHTML.replace(/نقطة/g, isAr?'نقطة':(isFr?'Crédits':'Credits')); " +
-                "      if(m.innerText.includes('الدفع آمن')) m.innerHTML = m.innerHTML.replace('الدفع آمن عبر Google Play', isAr?'الدفع آمن عبر Google Play':(isFr?'Paiement sécurisé via Google Play':'Secure payment via Google Play')); " +
-                "    }); " +
-                "  } " +
-                "  setInterval(translateModal, 1000); " +
-                "  window.saveAs = function(b, n) { var r = new FileReader(); r.onloadend = function() { AndroidDownload.downloadFile(r.result, n, getMsg()); }; r.readAsDataURL(b); }; " +
-                "  var old = HTMLAnchorElement.prototype.click; " +
-                "  HTMLAnchorElement.prototype.click = function() { " +
-                "    if (this.href.startsWith('blob:') || this.download) { " +
-                "      var n = this.download || 'file'; fetch(this.href).then(r => r.blob()).then(b => { " +
-                "        var rd = new FileReader(); rd.onloadend = function() { AndroidDownload.downloadFile(rd.result, n, getMsg()); }; rd.readAsDataURL(b); " +
-                "      }); " +
-                "    } else old.call(this); " +
-                "  }; " +
-                "})()");
-            }
-        });
+
+        webView.setWebViewClient(new WebViewClient());
         webView.loadUrl("file:///android_asset/index.html");
     }
+
+    @Override
     protected void onActivityResult(int r, int c, Intent d) {
         if (r == 1 && filePathCallback != null) {
             Uri[] res = null;
