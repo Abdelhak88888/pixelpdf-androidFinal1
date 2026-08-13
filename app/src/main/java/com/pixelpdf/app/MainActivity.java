@@ -21,10 +21,15 @@ import android.media.MediaScannerConnection;
 import java.io.OutputStream;
 import java.io.File;
 import com.huawei.hms.ads.HwAds;
+import com.huawei.hms.ads.reward.Reward;
+import com.huawei.hms.ads.reward.RewardAd;
+import com.huawei.hms.ads.reward.RewardAdLoadListener;
+import com.huawei.hms.ads.reward.RewardAdStatusListener;
 
 public class MainActivity extends AppCompatActivity {
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
+    private RewardAd rewardAd;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -33,80 +38,47 @@ public class MainActivity extends AppCompatActivity {
         webView = new WebView(this);
         setContentView(webView);
         
-        webView.setFocusable(true);
-        webView.setFocusableInTouchMode(true);
-        webView.setClickable(true);
-        
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setAllowFileAccess(true);
         s.setAllowContentAccess(true);
-        s.setDatabaseEnabled(true);
-        s.setLoadWithOverviewMode(true);
-        s.setUseWideViewPort(true);
-        s.setJavaScriptCanOpenWindowsAutomatically(true);
-        
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        }
         
         webView.addJavascriptInterface(new Object() {
             @JavascriptInterface
             public void downloadFile(String b64, String name, String msg) {
                 try {
-                    if (b64 == null || b64.isEmpty()) return;
                     if (b64.startsWith("data:")) b64 = b64.substring(b64.indexOf(",") + 1);
-                    
                     byte[] bt = Base64.decode(b64, Base64.DEFAULT);
                     ContentValues v = new ContentValues();
                     v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
-                    
-                    String mime = "application/octet-stream";
-                    if (name.toLowerCase().endsWith(".pdf")) mime = "application/pdf";
-                    else if (name.toLowerCase().endsWith(".txt")) mime = "text/plain";
-                    else if (name.toLowerCase().endsWith(".jpg") || name.toLowerCase().endsWith(".jpeg")) mime = "image/jpeg";
-                    else if (name.toLowerCase().endsWith(".png")) mime = "image/png";
-                    
+                    String mime = name.endsWith(".pdf") ? "application/pdf" : (name.endsWith(".txt") ? "text/plain" : "image/jpeg");
                     v.put(MediaStore.MediaColumns.MIME_TYPE, mime);
-                    
-                    Uri u;
-                    if (Build.VERSION.SDK_INT >= 29) {
-                        v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
-                        u = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
-                    } else {
-                        File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-                        File file = new File(dir, name);
-                        u = Uri.fromFile(file);
-                    }
-                    
+                    Uri u = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
                     if (u != null) {
                         OutputStream o = getContentResolver().openOutputStream(u);
-                        o.write(bt);
-                        o.close();
-                        
+                        o.write(bt); o.close();
                         MediaScannerConnection.scanFile(MainActivity.this, new String[]{Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).toString() + "/" + name}, new String[]{mime}, null);
-                        
-                        if (msg != null && !msg.isEmpty()) {
-                            runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
-                        }
+                        runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
                     }
-                } catch (Exception e) {
-                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show());
-                }
+                } catch (Exception e) {}
             }
             
             @JavascriptInterface
             public void startIAP(String type) {
-                runOnUiThread(() -> {
-                    String m = type.equals("PRO") ? "Connecting to Huawei IAP for PRO Upgrade..." : "Connecting to Huawei IAP for Credits...";
-                    Toast.makeText(MainActivity.this, m, Toast.LENGTH_LONG).show();
-                });
+                String productId = "";
+                if (type.equals("PRO")) productId = "pro_version";
+                else if (type.equals("500")) productId = "credits_500";
+                else if (type.equals("1000")) productId = "credits_1000";
+                else if (type.equals("3000")) productId = "credits_3000";
+                
+                final String finalId = productId;
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Connecting to Huawei IAP for: " + finalId, Toast.LENGTH_LONG).show());
             }
 
             @JavascriptInterface
-            public void showToast(String msg) {
-                runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
+            public void showVideoAd() {
+                runOnUiThread(() -> loadRewardAd());
             }
         }, "AndroidBridge");
 
@@ -119,103 +91,59 @@ public class MainActivity extends AppCompatActivity {
                 startActivityForResult(Intent.createChooser(i, "Select Files"), 1);
                 return true;
             }
-            
             @Override
-            public boolean onJsAlert(WebView view, String url, String message, final android.webkit.JsResult result) {
-                runOnUiThread(() -> Toast.makeText(MainActivity.this, message, Toast.LENGTH_SHORT).show());
-                result.confirm();
-                return true;
-            }
-            
-            @Override
-            public boolean onJsConfirm(WebView view, String url, String message, final android.webkit.JsResult result) {
-                if (message.contains("Watch ad")) {
-                    result.confirm();
-                    return true;
-                }
-                return super.onJsConfirm(view, url, message, result);
+            public boolean onJsAlert(WebView v, String u, String m, android.webkit.JsResult r) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, m, Toast.LENGTH_SHORT).show());
+                r.confirm(); return true;
             }
         });
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
-                String js = "javascript:(function() { " +
-                "  function fixApp() { " +
-                "    var s = document.getElementById('splash-screen'); " +
-                "    if(s) { s.style.display='none'; s.style.pointerEvents='none'; } " +
-                "    " +
-                "    if (!window.isBridgeSetup) { " +
-                "      var oldClick = HTMLAnchorElement.prototype.click; " +
-                "      HTMLAnchorElement.prototype.click = function() { " +
-                "        if (this.href && (this.href.startsWith('blob:') || this.href.startsWith('data:') || this.download)) { " +
-                "          var name = this.download || 'file'; " +
-                "          fetch(this.href).then(r => r.blob()).then(blob => { " +
-                "            var reader = new FileReader(); " +
-                "            reader.onloadend = function() { " +
-                "              var l = document.querySelector('.lang-sel')?.value || 'en'; " +
-                "              var m = l.includes('ar') ? '✅ تم حفظ الملف بنجاح' : '✅ File saved successfully'; " +
-                "              AndroidBridge.downloadFile(reader.result, name, m); " +
-                "            }; " +
-                "            reader.readAsDataURL(blob); " +
-                "          }); " +
-                "          return; " +
-                "        } " +
-                "        oldClick.call(this); " +
-                "      }; " +
-                "      " +
-                "      var oldDownloadOCR = window.downloadOCR; " +
-                "      window.downloadOCR = function(fmt) { " +
-                "        if (fmt === 'pdf') { " +
-                "          const text = document.getElementById('ocr-text-result').innerText; " +
-                "          if (window.jspdf) { " +
-                "            const { jsPDF } = window.jspdf; " +
-                "            const doc = new jsPDF(); " +
-                "            const lines = doc.splitTextToSize(text, 180); " +
-                "            doc.text(lines, 10, 10); " +
-                "            const pdfBlob = doc.output('blob'); " +
-                "            const url = URL.createObjectURL(pdfBlob); " +
-                "            const a = document.createElement('a'); " +
-                "            a.href = url; a.download = 'ocr_result.pdf'; a.click(); " +
-                "          } else { AndroidBridge.showToast('PDF Generator Loading...'); } " +
-                "        } else { oldDownloadOCR(fmt); } " +
-                "      }; " +
-                "      window.isBridgeSetup = true; " +
-                "    } " +
-                "    " +
-                "    window.simulateUpgrade = function() { AndroidBridge.startIAP('PRO'); }; " +
-                "    window.buyCredits = function() { AndroidBridge.startIAP('CREDITS'); }; " +
-                "    " +
-                "    /* إعادة إضافة كود ترجمة المودال المفقود */ " +
-                "    var lang = document.querySelector('.lang-sel')?.value || 'en'; " +
-                "    var isAr = lang.includes('ar'); var isFr = lang.includes('fr'); " +
-                "    document.querySelectorAll('.modal-box *').forEach(function(el) { " +
-                "      if(el.children.length > 0) return; " +
-                "      var t = el.innerHTML; " +
-                "      if(t.includes('شراء نقاط')) el.innerHTML = isAr ? '💎 شراء نقاط' : (isFr ? '💎 Acheter des crédits' : '💎 Buy Credits'); " +
-                "      if(t.includes('نقطة')) el.innerHTML = t.replace('نقطة', isAr ? 'نقطة' : (isFr ? 'Crédits' : 'Credits')); " +
-                "      if(t.includes('الدفع آمن')) el.innerHTML = isAr ? 'الدفع آمن عبر Huawei' : (isFr ? 'Paiement sécurisé via Huawei' : 'Secure payment via Huawei'); " +
-                "    }); " +
-                "  } " +
-                "  fixApp(); setInterval(fixApp, 2000); " +
-                "})(); void(0);";
-                view.loadUrl(js);
+                view.loadUrl("javascript:(function() { " +
+                "  window.simulateUpgrade = function() { AndroidBridge.startIAP('PRO'); }; " +
+                "  window.buyCredits = function(amt) { AndroidBridge.startIAP(amt); }; " +
+                "  window.watchAd = function() { AndroidBridge.showVideoAd(); }; " +
+                "  /* Fix Modal Translation */ " +
+                "  var lang = document.querySelector('.lang-sel')?.value || 'en'; " +
+                "  var isAr = lang.includes('ar'); " +
+                "  document.querySelectorAll('.modal-box *').forEach(function(el) { " +
+                "    if(el.children.length > 0) return; " +
+                "    var t = el.innerHTML; " +
+                "    if(t.includes('شراء نقاط')) el.innerHTML = isAr ? '💎 شراء نقاط' : '💎 Buy Credits'; " +
+                "    if(t.includes('نقطة')) el.innerHTML = t.replace('نقطة', isAr ? 'نقطة' : 'Credits'); " +
+                "    if(t.includes('الدفع آمن')) el.innerHTML = isAr ? 'الدفع آمن عبر Huawei' : 'Secure payment via Huawei'; " +
+                "  }); " +
+                "})();");
             }
         });
-
         webView.loadUrl("file:///android_asset/index.html");
+    }
+
+    private void loadRewardAd() {
+        rewardAd = new RewardAd(this, "testy7m52sqo74"); // Test ID for now
+        rewardAd.loadAd(new com.huawei.hms.ads.AdParam.Builder().build(), new RewardAdLoadListener() {
+            @Override
+            public void onRewardAdFailedToLoad(int errorCode) {
+                Toast.makeText(MainActivity.this, "Ad failed to load. Try again later.", Toast.LENGTH_SHORT).show();
+            }
+            @Override
+            public void onRewardedLoaded() { rewardAd.show(MainActivity.this, new RewardAdStatusListener() {
+                @Override
+                public void onRewarded(Reward reward) {
+                    webView.loadUrl("javascript:addCredits(25);");
+                    Toast.makeText(MainActivity.this, "Success! +25 Credits added.", Toast.LENGTH_SHORT).show();
+                }
+            }); }
+        });
     }
 
     @Override
     protected void onActivityResult(int r, int c, Intent d) {
         if (r == 1 && filePathCallback != null) {
-            Uri[] res = null;
-            if (c == RESULT_OK && d != null) {
-                if (d.getClipData() != null) {
-                    res = new Uri[d.getClipData().getItemCount()];
-                    for (int i=0; i<d.getClipData().getItemCount(); i++) res[i] = d.getClipData().getItemAt(i).getUri();
-                } else if (d.getData() != null) res = new Uri[]{d.getData()};
-            }
+            Uri[] res = (c == RESULT_OK && d != null) ? (d.getClipData() != null ? new Uri[d.getClipData().getItemCount()] : new Uri[]{d.getData()}) : null;
+            if (res != null && d.getClipData() != null) for (int i=0; i<d.getClipData().getItemCount(); i++) res[i] = d.getClipData().getItemAt(i).getUri();
             filePathCallback.onReceiveValue(res); filePathCallback = null;
         }
     }
