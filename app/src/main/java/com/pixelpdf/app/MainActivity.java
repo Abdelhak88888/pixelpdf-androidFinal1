@@ -53,27 +53,32 @@ public class MainActivity extends AppCompatActivity {
             @JavascriptInterface
             public void downloadFile(String b64, String name, String msg) {
                 try {
+                    if (b64 == null || b64.isEmpty()) return;
                     if (b64.startsWith("data:")) b64 = b64.substring(b64.indexOf(",") + 1);
+                    
                     byte[] bt = Base64.decode(b64, Base64.DEFAULT);
                     ContentValues v = new ContentValues();
                     v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
-                    v.put(MediaStore.MediaColumns.MIME_TYPE, name.endsWith(".pdf") ? "application/pdf" : "image/jpeg");
+                    
+                    String mime = "application/octet-stream";
+                    if (name.endsWith(".pdf")) mime = "application/pdf";
+                    else if (name.endsWith(".txt")) mime = "text/plain";
+                    
+                    v.put(MediaStore.MediaColumns.MIME_TYPE, mime);
                     if (Build.VERSION.SDK_INT >= 29) v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                    
                     Uri u = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
                     if (u != null) {
                         OutputStream o = getContentResolver().openOutputStream(u);
                         o.write(bt); o.close();
-                        runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
+                        if (msg != null) runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
                     }
                 } catch (Exception e) {}
             }
             
             @JavascriptInterface
             public void startIAP(String type) {
-                runOnUiThread(() -> {
-                    String msg = type.equals("PRO") ? "Connecting to Huawei IAP for PRO Upgrade..." : "Connecting to Huawei IAP for Credits...";
-                    Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
-                });
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Connecting to Huawei IAP...", Toast.LENGTH_LONG).show());
             }
 
             @JavascriptInterface
@@ -91,6 +96,22 @@ public class MainActivity extends AppCompatActivity {
                 startActivityForResult(Intent.createChooser(i, "Select Files"), 1);
                 return true;
             }
+            
+            @Override
+            public boolean onJsAlert(WebView view, String url, String message, final android.webkit.JsResult result) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, message, Toast.LENGTH_SHORT).show());
+                result.confirm();
+                return true;
+            }
+            
+            @Override
+            public boolean onJsConfirm(WebView view, String url, String message, final android.webkit.JsResult result) {
+                if (message.contains("Watch ad")) {
+                    result.confirm();
+                    return true;
+                }
+                return super.onJsConfirm(view, url, message, result);
+            }
         });
 
         webView.setWebViewClient(new WebViewClient() {
@@ -101,31 +122,40 @@ public class MainActivity extends AppCompatActivity {
                 "    var s = document.getElementById('splash-screen'); " +
                 "    if(s) { s.style.display='none'; s.style.pointerEvents='none'; } " +
                 "    " +
-                "    window.smartDownload = function(dataUrl, filename) { " +
-                "      var l = document.querySelector('.lang-sel')?.value || 'en'; " +
-                "      var m = l.includes('ar') ? '✅ تم حفظ الملف بنجاح' : (l.includes('fr') ? '✅ Enregistré avec succès' : '✅ File saved successfully'); " +
-                "      AndroidBridge.downloadFile(dataUrl, filename, m); " +
-                "    }; " +
+                "    /* Intercept All Clicks on Download Links */ " +
+                "    if (!window.isBridgeSetup) { " +
+                "      var oldClick = HTMLAnchorElement.prototype.click; " +
+                "      HTMLAnchorElement.prototype.click = function() { " +
+                "        if (this.href && (this.href.startsWith('blob:') || this.href.startsWith('data:') || this.download)) { " +
+                "          var name = this.download || 'file'; " +
+                "          fetch(this.href).then(r => r.blob()).then(blob => { " +
+                "            var reader = new FileReader(); " +
+                "            reader.onloadend = function() { " +
+                "              var l = document.querySelector('.lang-sel')?.value || 'en'; " +
+                "              var m = l.includes('ar') ? '✅ تم حفظ الملف بنجاح' : '✅ File saved successfully'; " +
+                "              AndroidBridge.downloadFile(reader.result, name, m); " +
+                "            }; " +
+                "            reader.readAsDataURL(blob); " +
+                "          }); " +
+                "          return; " +
+                "        } " +
+                "        oldClick.call(this); " +
+                "      }; " +
+                "      window.isBridgeSetup = true; " +
+                "    } " +
                 "    " +
-                "    /* تعطيل وظائف الشراء الأصلية وربطها بهواوي */ " +
                 "    window.simulateUpgrade = function() { AndroidBridge.startIAP('PRO'); }; " +
-                "    window.buyCredits = function(amt, prc) { AndroidBridge.startIAP('CREDITS'); }; " +
+                "    window.buyCredits = function() { AndroidBridge.startIAP('CREDITS'); }; " +
                 "    " +
-                "    /* تحويل التنبيهات المزعجة لرسائل Toast احترافية */ " +
-                "    window.alert = function(msg) { " +
-                "      if(msg.includes('Welcome to PRO')) return; " +
-                "      AndroidBridge.showToast(msg); " +
-                "    }; " +
-                "    " +
-                "    /* ترجمة المودال */ " +
+                "    /* Translate Credit Modal */ " +
                 "    var lang = document.querySelector('.lang-sel')?.value || 'en'; " +
-                "    var isAr = lang.includes('ar'); var isFr = lang.includes('fr'); " +
+                "    var isAr = lang.includes('ar'); " +
                 "    document.querySelectorAll('.modal-box *').forEach(function(el) { " +
                 "      if(el.children.length > 0) return; " +
                 "      var t = el.innerHTML; " +
-                "      if(t.includes('شراء نقاط')) el.innerHTML = isAr ? '💎 شراء نقاط' : (isFr ? '💎 Acheter des crédits' : '💎 Buy Credits'); " +
-                "      if(t.includes('نقطة')) el.innerHTML = t.replace('نقطة', isAr ? 'نقطة' : (isFr ? 'Crédits' : 'Credits')); " +
-                "      if(t.includes('الدفع آمن')) el.innerHTML = isAr ? 'الدفع آمن عبر Huawei' : (isFr ? 'Paiement sécurisé via Huawei' : 'Secure payment via Huawei'); " +
+                "      if(t.includes('شراء نقاط')) el.innerHTML = isAr ? '💎 شراء نقاط' : '💎 Buy Credits'; " +
+                "      if(t.includes('نقطة')) el.innerHTML = t.replace('نقطة', isAr ? 'نقطة' : 'Credits'); " +
+                "      if(t.includes('الدفع آمن')) el.innerHTML = isAr ? 'الدفع آمن عبر Huawei' : 'Secure payment via Huawei'; " +
                 "    }); " +
                 "  } " +
                 "  fixApp(); setInterval(fixApp, 2000); " +
