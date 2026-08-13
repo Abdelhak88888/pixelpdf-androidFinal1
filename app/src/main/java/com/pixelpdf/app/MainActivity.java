@@ -17,7 +17,9 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
+import android.media.MediaScannerConnection;
 import java.io.OutputStream;
+import java.io.File;
 import com.huawei.hms.ads.HwAds;
 
 public class MainActivity extends AppCompatActivity {
@@ -61,24 +63,46 @@ public class MainActivity extends AppCompatActivity {
                     v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
                     
                     String mime = "application/octet-stream";
-                    if (name.endsWith(".pdf")) mime = "application/pdf";
-                    else if (name.endsWith(".txt")) mime = "text/plain";
+                    if (name.toLowerCase().endsWith(".pdf")) mime = "application/pdf";
+                    else if (name.toLowerCase().endsWith(".txt")) mime = "text/plain";
+                    else if (name.toLowerCase().endsWith(".jpg") || name.toLowerCase().endsWith(".jpeg")) mime = "image/jpeg";
+                    else if (name.toLowerCase().endsWith(".png")) mime = "image/png";
                     
                     v.put(MediaStore.MediaColumns.MIME_TYPE, mime);
-                    if (Build.VERSION.SDK_INT >= 29) v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
                     
-                    Uri u = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+                    Uri u;
+                    if (Build.VERSION.SDK_INT >= 29) {
+                        v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                        u = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+                    } else {
+                        File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                        File file = new File(dir, name);
+                        u = Uri.fromFile(file);
+                    }
+                    
                     if (u != null) {
                         OutputStream o = getContentResolver().openOutputStream(u);
-                        o.write(bt); o.close();
-                        if (msg != null) runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
+                        o.write(bt);
+                        o.close();
+                        
+                        // Notify system that a new file is added (Fix for Gallery Thumbnails)
+                        MediaScannerConnection.scanFile(MainActivity.this, new String[]{Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).toString() + "/" + name}, new String[]{mime}, null);
+                        
+                        if (msg != null && !msg.isEmpty()) {
+                            runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
+                        }
                     }
-                } catch (Exception e) {}
+                } catch (Exception e) {
+                    runOnUiThread(() -> Toast.makeText(MainActivity.this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+                }
             }
             
             @JavascriptInterface
             public void startIAP(String type) {
-                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Connecting to Huawei IAP...", Toast.LENGTH_LONG).show());
+                runOnUiThread(() -> {
+                    String m = type.equals("PRO") ? "Connecting to Huawei IAP for PRO Upgrade..." : "Connecting to Huawei IAP for Credits...";
+                    Toast.makeText(MainActivity.this, m, Toast.LENGTH_LONG).show();
+                });
             }
 
             @JavascriptInterface
@@ -122,13 +146,14 @@ public class MainActivity extends AppCompatActivity {
                 "    var s = document.getElementById('splash-screen'); " +
                 "    if(s) { s.style.display='none'; s.style.pointerEvents='none'; } " +
                 "    " +
-                "    /* Intercept All Clicks on Download Links */ " +
                 "    if (!window.isBridgeSetup) { " +
+                "      /* Global Download Interceptor */ " +
                 "      var oldClick = HTMLAnchorElement.prototype.click; " +
                 "      HTMLAnchorElement.prototype.click = function() { " +
                 "        if (this.href && (this.href.startsWith('blob:') || this.href.startsWith('data:') || this.download)) { " +
                 "          var name = this.download || 'file'; " +
-                "          fetch(this.href).then(r => r.blob()).then(blob => { " +
+                "          var href = this.href; " +
+                "          fetch(href).then(r => r.blob()).then(blob => { " +
                 "            var reader = new FileReader(); " +
                 "            reader.onloadend = function() { " +
                 "              var l = document.querySelector('.lang-sel')?.value || 'en'; " +
@@ -141,22 +166,29 @@ public class MainActivity extends AppCompatActivity {
                 "        } " +
                 "        oldClick.call(this); " +
                 "      }; " +
+                "      " +
+                "      /* Fix OCR PDF Download specifically */ " +
+                "      var oldDownloadOCR = window.downloadOCR; " +
+                "      window.downloadOCR = function(fmt) { " +
+                "        if (fmt === 'pdf') { " +
+                "          const text = document.getElementById('ocr-text-result').innerText; " +
+                "          if (window.jspdf) { " +
+                "            const { jsPDF } = window.jspdf; " +
+                "            const doc = new jsPDF(); " +
+                "            const lines = doc.splitTextToSize(text, 180); " +
+                "            doc.text(lines, 10, 10); " +
+                "            const pdfBlob = doc.output('blob'); " +
+                "            const url = URL.createObjectURL(pdfBlob); " +
+                "            const a = document.createElement('a'); " +
+                "            a.href = url; a.download = 'ocr_result.pdf'; a.click(); " +
+                "          } else { AndroidBridge.showToast('PDF Generator Loading...'); } " +
+                "        } else { oldDownloadOCR(fmt); } " +
+                "      }; " +
                 "      window.isBridgeSetup = true; " +
                 "    } " +
                 "    " +
                 "    window.simulateUpgrade = function() { AndroidBridge.startIAP('PRO'); }; " +
                 "    window.buyCredits = function() { AndroidBridge.startIAP('CREDITS'); }; " +
-                "    " +
-                "    /* Translate Credit Modal */ " +
-                "    var lang = document.querySelector('.lang-sel')?.value || 'en'; " +
-                "    var isAr = lang.includes('ar'); " +
-                "    document.querySelectorAll('.modal-box *').forEach(function(el) { " +
-                "      if(el.children.length > 0) return; " +
-                "      var t = el.innerHTML; " +
-                "      if(t.includes('شراء نقاط')) el.innerHTML = isAr ? '💎 شراء نقاط' : '💎 Buy Credits'; " +
-                "      if(t.includes('نقطة')) el.innerHTML = t.replace('نقطة', isAr ? 'نقطة' : 'Credits'); " +
-                "      if(t.includes('الدفع آمن')) el.innerHTML = isAr ? 'الدفع آمن عبر Huawei' : 'Secure payment via Huawei'; " +
-                "    }); " +
                 "  } " +
                 "  fixApp(); setInterval(fixApp, 2000); " +
                 "})(); void(0);";
