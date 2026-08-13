@@ -85,7 +85,6 @@ public class MainActivity extends AppCompatActivity {
                         o.write(bt);
                         o.close();
                         
-                        // Notify system that a new file is added (Fix for Gallery Thumbnails)
                         MediaScannerConnection.scanFile(MainActivity.this, new String[]{Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).toString() + "/" + name}, new String[]{mime}, null);
                         
                         if (msg != null && !msg.isEmpty()) {
@@ -147,13 +146,11 @@ public class MainActivity extends AppCompatActivity {
                 "    if(s) { s.style.display='none'; s.style.pointerEvents='none'; } " +
                 "    " +
                 "    if (!window.isBridgeSetup) { " +
-                "      /* Global Download Interceptor */ " +
                 "      var oldClick = HTMLAnchorElement.prototype.click; " +
                 "      HTMLAnchorElement.prototype.click = function() { " +
                 "        if (this.href && (this.href.startsWith('blob:') || this.href.startsWith('data:') || this.download)) { " +
                 "          var name = this.download || 'file'; " +
-                "          var href = this.href; " +
-                "          fetch(href).then(r => r.blob()).then(blob => { " +
+                "          fetch(this.href).then(r => r.blob()).then(blob => { " +
                 "            var reader = new FileReader(); " +
                 "            reader.onloadend = function() { " +
                 "              var l = document.querySelector('.lang-sel')?.value || 'en'; " +
@@ -167,7 +164,6 @@ public class MainActivity extends AppCompatActivity {
                 "        oldClick.call(this); " +
                 "      }; " +
                 "      " +
-                "      /* Fix OCR PDF Download specifically */ " +
                 "      var oldDownloadOCR = window.downloadOCR; " +
                 "      window.downloadOCR = function(fmt) { " +
                 "        if (fmt === 'pdf') { " +
@@ -189,6 +185,17 @@ public class MainActivity extends AppCompatActivity {
                 "    " +
                 "    window.simulateUpgrade = function() { AndroidBridge.startIAP('PRO'); }; " +
                 "    window.buyCredits = function() { AndroidBridge.startIAP('CREDITS'); }; " +
+                "    " +
+                "    /* إعادة إضافة كود ترجمة المودال المفقود */ " +
+                "    var lang = document.querySelector('.lang-sel')?.value || 'en'; " +
+                "    var isAr = lang.includes('ar'); var isFr = lang.includes('fr'); " +
+                "    document.querySelectorAll('.modal-box *').forEach(function(el) { " +
+                "      if(el.children.length > 0) return; " +
+                "      var t = el.innerHTML; " +
+                "      if(t.includes('شراء نقاط')) el.innerHTML = isAr ? '💎 شراء نقاط' : (isFr ? '💎 Acheter des crédits' : '💎 Buy Credits'); " +
+                "      if(t.includes('نقطة')) el.innerHTML = t.replace('نقطة', isAr ? 'نقطة' : (isFr ? 'Crédits' : 'Credits')); " +
+                "      if(t.includes('الدفع آمن')) el.innerHTML = isAr ? 'الدفع آمن عبر Huawei' : (isFr ? 'Paiement sécurisé via Huawei' : 'Secure payment via Huawei'); " +
+                "    }); " +
                 "  } " +
                 "  fixApp(); setInterval(fixApp, 2000); " +
                 "})(); void(0);";
