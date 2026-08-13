@@ -38,11 +38,16 @@ public class MainActivity extends AppCompatActivity {
         webView = new WebView(this);
         setContentView(webView);
         
+        webView.setFocusable(true);
+        webView.setFocusableInTouchMode(true);
+        webView.setClickable(true);
+        
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setAllowFileAccess(true);
         s.setAllowContentAccess(true);
+        s.setJavaScriptCanOpenWindowsAutomatically(true);
         
         webView.addJavascriptInterface(new Object() {
             @JavascriptInterface
@@ -52,8 +57,12 @@ public class MainActivity extends AppCompatActivity {
                     byte[] bt = Base64.decode(b64, Base64.DEFAULT);
                     ContentValues v = new ContentValues();
                     v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
-                    String mime = name.endsWith(".pdf") ? "application/pdf" : (name.endsWith(".txt") ? "text/plain" : "image/jpeg");
+                    String mime = "application/octet-stream";
+                    if (name.endsWith(".pdf")) mime = "application/pdf";
+                    else if (name.endsWith(".txt")) mime = "text/plain";
+                    else if (name.endsWith(".jpg") || name.endsWith(".jpeg")) mime = "image/jpeg";
                     v.put(MediaStore.MediaColumns.MIME_TYPE, mime);
+                    
                     Uri u = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
                     if (u != null) {
                         OutputStream o = getContentResolver().openOutputStream(u);
@@ -66,14 +75,8 @@ public class MainActivity extends AppCompatActivity {
             
             @JavascriptInterface
             public void startIAP(String type) {
-                String productId = "";
-                if (type.equals("PRO")) productId = "pro_version";
-                else if (type.equals("500")) productId = "credits_500";
-                else if (type.equals("1000")) productId = "credits_1000";
-                else if (type.equals("3000")) productId = "credits_3000";
-                
-                final String finalId = productId;
-                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Connecting to Huawei IAP for: " + finalId, Toast.LENGTH_LONG).show());
+                String pId = type.equals("PRO") ? "pro_version" : "credits_" + type;
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Connecting to Huawei IAP: " + pId, Toast.LENGTH_LONG).show());
             }
 
             @JavascriptInterface
@@ -101,33 +104,53 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
-                view.loadUrl("javascript:(function() { " +
-                "  window.simulateUpgrade = function() { AndroidBridge.startIAP('PRO'); }; " +
-                "  window.buyCredits = function(amt) { AndroidBridge.startIAP(amt); }; " +
-                "  window.watchAd = function() { AndroidBridge.showVideoAd(); }; " +
-                "  /* Fix Modal Translation */ " +
-                "  var lang = document.querySelector('.lang-sel')?.value || 'en'; " +
-                "  var isAr = lang.includes('ar'); " +
-                "  document.querySelectorAll('.modal-box *').forEach(function(el) { " +
-                "    if(el.children.length > 0) return; " +
-                "    var t = el.innerHTML; " +
-                "    if(t.includes('شراء نقاط')) el.innerHTML = isAr ? '💎 شراء نقاط' : '💎 Buy Credits'; " +
-                "    if(t.includes('نقطة')) el.innerHTML = t.replace('نقطة', isAr ? 'نقطة' : 'Credits'); " +
-                "    if(t.includes('الدفع آمن')) el.innerHTML = isAr ? 'الدفع آمن عبر Huawei' : 'Secure payment via Huawei'; " +
-                "  }); " +
-                "})();");
+                String js = "javascript:(function() { " +
+                "  function fixApp() { " +
+                "    if (!window.isBridgeSetup) { " +
+                "      var oldClick = HTMLAnchorElement.prototype.click; " +
+                "      HTMLAnchorElement.prototype.click = function() { " +
+                "        if (this.href && (this.href.startsWith('blob:') || this.href.startsWith('data:') || this.download)) { " +
+                "          var name = this.download || 'file'; " +
+                "          fetch(this.href).then(r => r.blob()).then(blob => { " +
+                "            var reader = new FileReader(); " +
+                "            reader.onloadend = function() { " +
+                "              var l = document.querySelector('.lang-sel')?.value || 'en'; " +
+                "              var m = l.includes('ar') ? '✅ تم حفظ الملف بنجاح' : '✅ File saved successfully'; " +
+                "              AndroidBridge.downloadFile(reader.result, name, m); " +
+                "            }; " +
+                "            reader.readAsDataURL(blob); " +
+                "          }); " +
+                "          return; " +
+                "        } " +
+                "        oldClick.call(this); " +
+                "      }; " +
+                "      window.isBridgeSetup = true; " +
+                "    } " +
+                "    window.simulateUpgrade = function() { AndroidBridge.startIAP('PRO'); }; " +
+                "    window.buyCredits = function(amt) { AndroidBridge.startIAP(amt); }; " +
+                "    window.watchAd = function() { AndroidBridge.showVideoAd(); }; " +
+                "    /* Translate Modal */ " +
+                "    var lang = document.querySelector('.lang-sel')?.value || 'en'; " +
+                "    var isAr = lang.includes('ar'); " +
+                "    document.querySelectorAll('.modal-box *').forEach(function(el) { " +
+                "      if(el.children.length > 0) return; " +
+                "      var t = el.innerHTML; " +
+                "      if(t.includes('شراء نقاط')) el.innerHTML = isAr ? '💎 شراء نقاط' : '💎 Buy Credits'; " +
+                "      if(t.includes('نقطة')) el.innerHTML = t.replace('نقطة', isAr ? 'نقطة' : 'Credits'); " +
+                "      if(t.includes('الدفع آمن')) el.innerHTML = isAr ? 'الدفع آمن عبر Huawei' : 'Secure payment via Huawei'; " +
+                "    }); " +
+                "  } " +
+                "  fixApp(); setInterval(fixApp, 2000); " +
+                "})(); void(0);";
+                view.loadUrl(js);
             }
         });
         webView.loadUrl("file:///android_asset/index.html");
     }
 
     private void loadRewardAd() {
-        rewardAd = new RewardAd(this, "testy7m52sqo74"); // Test ID for now
+        rewardAd = new RewardAd(this, "testy7m52sqo74");
         rewardAd.loadAd(new com.huawei.hms.ads.AdParam.Builder().build(), new RewardAdLoadListener() {
-            @Override
-            public void onRewardAdFailedToLoad(int errorCode) {
-                Toast.makeText(MainActivity.this, "Ad failed to load. Try again later.", Toast.LENGTH_SHORT).show();
-            }
             @Override
             public void onRewardedLoaded() { rewardAd.show(MainActivity.this, new RewardAdStatusListener() {
                 @Override
@@ -142,8 +165,13 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int r, int c, Intent d) {
         if (r == 1 && filePathCallback != null) {
-            Uri[] res = (c == RESULT_OK && d != null) ? (d.getClipData() != null ? new Uri[d.getClipData().getItemCount()] : new Uri[]{d.getData()}) : null;
-            if (res != null && d.getClipData() != null) for (int i=0; i<d.getClipData().getItemCount(); i++) res[i] = d.getClipData().getItemAt(i).getUri();
+            Uri[] res = null;
+            if (c == RESULT_OK && d != null) {
+                if (d.getClipData() != null) {
+                    res = new Uri[d.getClipData().getItemCount()];
+                    for (int i=0; i<d.getClipData().getItemCount(); i++) res[i] = d.getClipData().getItemAt(i).getUri();
+                } else if (d.getData() != null) res = new Uri[]{d.getData()};
+            }
             filePathCallback.onReceiveValue(res); filePathCallback = null;
         }
     }
