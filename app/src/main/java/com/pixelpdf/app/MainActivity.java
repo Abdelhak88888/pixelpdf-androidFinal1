@@ -6,9 +6,9 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.Handler;
 import android.provider.MediaStore;
 import android.util.Base64;
+import android.util.Log;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -16,72 +16,74 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
+
 import androidx.appcompat.app.AppCompatActivity;
-import android.media.MediaScannerConnection;
-import java.io.OutputStream;
-import java.io.File;
+
+import com.huawei.hms.ads.AdParam;
+import com.huawei.hms.ads.BannerAdSize;
 import com.huawei.hms.ads.HwAds;
+import com.huawei.hms.ads.InterstitialAd;
+import com.huawei.hms.ads.SplashAd;
 import com.huawei.hms.ads.reward.Reward;
 import com.huawei.hms.ads.reward.RewardAd;
-import com.huawei.hms.ads.reward.RewardAdLoadListener;
 import com.huawei.hms.ads.reward.RewardAdStatusListener;
+
+import java.io.OutputStream;
+import java.util.Arrays;
+import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
     private WebView webView;
     private ValueCallback<Uri[]> filePathCallback;
+    
+    // Ad Unit IDs
+    private static final String AD_REWARDED = "f95ziipjhl";
+    private static final String AD_SPLASH = "n16zcrjokr";
+    private static final String AD_BANNER = "c3mwj5uc1a";
+    private static final String AD_INTERSTITIAL = "w07e1f28c6";
+
     private RewardAd rewardAd;
+    private InterstitialAd interstitialAd;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        
+        // Initialize Huawei Ads
         HwAds.init(this);
+        
         webView = new WebView(this);
         setContentView(webView);
-        
-        webView.setFocusable(true);
-        webView.setFocusableInTouchMode(true);
-        webView.setClickable(true);
         
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setAllowFileAccess(true);
         s.setAllowContentAccess(true);
-        s.setJavaScriptCanOpenWindowsAutomatically(true);
-        
+        s.setDatabaseEnabled(true);
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+
+        // JavaScript Interface for Downloads and Ads/IAP
         webView.addJavascriptInterface(new Object() {
             @JavascriptInterface
             public void downloadFile(String b64, String name, String msg) {
-                try {
-                    if (b64.startsWith("data:")) b64 = b64.substring(b64.indexOf(",") + 1);
-                    byte[] bt = Base64.decode(b64, Base64.DEFAULT);
-                    ContentValues v = new ContentValues();
-                    v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
-                    String mime = "application/octet-stream";
-                    if (name.endsWith(".pdf")) mime = "application/pdf";
-                    else if (name.endsWith(".txt")) mime = "text/plain";
-                    else if (name.endsWith(".jpg") || name.endsWith(".jpeg")) mime = "image/jpeg";
-                    v.put(MediaStore.MediaColumns.MIME_TYPE, mime);
-                    
-                    Uri u = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
-                    if (u != null) {
-                        OutputStream o = getContentResolver().openOutputStream(u);
-                        o.write(bt); o.close();
-                        MediaScannerConnection.scanFile(MainActivity.this, new String[]{Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).toString() + "/" + name}, new String[]{mime}, null);
-                        runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
-                    }
-                } catch (Exception e) {}
-            }
-            
-            @JavascriptInterface
-            public void startIAP(String type) {
-                String pId = type.equals("PRO") ? "pro_version" : "credits_" + type;
-                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Connecting to Huawei IAP: " + pId, Toast.LENGTH_LONG).show());
+                saveFileToDownloads(b64, name, msg);
             }
 
             @JavascriptInterface
-            public void showVideoAd() {
-                runOnUiThread(() -> loadRewardAd());
+            public void showRewardedAd() {
+                runOnUiThread(() -> loadAndShowRewardedAd());
+            }
+
+            @JavascriptInterface
+            public void showInterstitialAd() {
+                runOnUiThread(() -> loadAndShowInterstitialAd());
+            }
+            
+            @JavascriptInterface
+            public void triggerPurchase(String productId) {
+                // Mocking IAP for this build, usually requires complex setup
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Connecting to Huawei IAP for: " + productId, Toast.LENGTH_SHORT).show());
             }
         }, "AndroidBridge");
 
@@ -94,71 +96,105 @@ public class MainActivity extends AppCompatActivity {
                 startActivityForResult(Intent.createChooser(i, "Select Files"), 1);
                 return true;
             }
-            @Override
-            public boolean onJsAlert(WebView v, String u, String m, android.webkit.JsResult r) {
-                runOnUiThread(() -> Toast.makeText(MainActivity.this, m, Toast.LENGTH_SHORT).show());
-                r.confirm(); return true;
-            }
         });
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
-            public void onPageFinished(WebView view, String url) {
-                String js = "javascript:(function() { " +
-                "  function fixApp() { " +
-                "    if (!window.isBridgeSetup) { " +
-                "      var oldClick = HTMLAnchorElement.prototype.click; " +
-                "      HTMLAnchorElement.prototype.click = function() { " +
-                "        if (this.href && (this.href.startsWith('blob:') || this.href.startsWith('data:') || this.download)) { " +
-                "          var name = this.download || 'file'; " +
-                "          fetch(this.href).then(r => r.blob()).then(blob => { " +
-                "            var reader = new FileReader(); " +
-                "            reader.onloadend = function() { " +
-                "              var l = document.querySelector('.lang-sel')?.value || 'en'; " +
-                "              var m = l.includes('ar') ? '✅ تم حفظ الملف بنجاح' : '✅ File saved successfully'; " +
-                "              AndroidBridge.downloadFile(reader.result, name, m); " +
-                "            }; " +
-                "            reader.readAsDataURL(blob); " +
-                "          }); " +
-                "          return; " +
-                "        } " +
-                "        oldClick.call(this); " +
-                "      }; " +
-                "      window.isBridgeSetup = true; " +
-                "    } " +
-                "    window.simulateUpgrade = function() { AndroidBridge.startIAP('PRO'); }; " +
-                "    window.buyCredits = function(amt) { AndroidBridge.startIAP(amt); }; " +
-                "    window.watchAd = function() { AndroidBridge.showVideoAd(); }; " +
-                "    /* Translate Modal */ " +
-                "    var lang = document.querySelector('.lang-sel')?.value || 'en'; " +
-                "    var isAr = lang.includes('ar'); " +
-                "    document.querySelectorAll('.modal-box *').forEach(function(el) { " +
-                "      if(el.children.length > 0) return; " +
-                "      var t = el.innerHTML; " +
-                "      if(t.includes('شراء نقاط')) el.innerHTML = isAr ? '💎 شراء نقاط' : '💎 Buy Credits'; " +
-                "      if(t.includes('نقطة')) el.innerHTML = t.replace('نقطة', isAr ? 'نقطة' : 'Credits'); " +
-                "      if(t.includes('الدفع آمن')) el.innerHTML = isAr ? 'الدفع آمن عبر Huawei' : 'Secure payment via Huawei'; " +
-                "    }); " +
-                "  } " +
-                "  fixApp(); setInterval(fixApp, 2000); " +
-                "})(); void(0);";
-                view.loadUrl(js);
+            public void onPageFinished(WebView v, String u) {
+                injectJavaScriptBridge(v);
             }
         });
+
         webView.loadUrl("file:///android_asset/index.html");
+        
+        // Load Splash Ad if needed (usually in a separate activity, but we can simulate or show Interstitial)
+        loadAndShowInterstitialAd();
     }
 
-    private void loadRewardAd() {
-        rewardAd = new RewardAd(this, "testy7m52sqo74");
-        rewardAd.loadAd(new com.huawei.hms.ads.AdParam.Builder().build(), new RewardAdLoadListener() {
+    private void saveFileToDownloads(String b64, String name, String msg) {
+        try {
+            if (b64.startsWith("data:")) b64 = b64.substring(b64.indexOf(",") + 1);
+            byte[] bt = Base64.decode(b64, Base64.DEFAULT);
+            ContentValues v = new ContentValues();
+            v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+            String mime = "application/octet-stream";
+            if (name.endsWith(".pdf")) mime = "application/pdf";
+            else if (name.endsWith(".jpg") || name.endsWith(".jpeg")) mime = "image/jpeg";
+            else if (name.endsWith(".png")) mime = "image/png";
+            else if (name.endsWith(".txt")) mime = "text/plain";
+            
+            v.put(MediaStore.MediaColumns.MIME_TYPE, mime);
+            if (Build.VERSION.SDK_INT >= 29) v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+            
+            Uri u = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+            if (u != null) {
+                OutputStream o = getContentResolver().openOutputStream(u);
+                o.write(bt);
+                o.close();
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show());
+            }
+        } catch (Exception e) {
+            runOnUiThread(() -> Toast.makeText(MainActivity.this, "Download Error: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+        }
+    }
+
+    private void injectJavaScriptBridge(WebView v) {
+        v.loadUrl("javascript:(function() { " +
+            "  function getMsg(type) { " +
+            "    var l = document.documentElement.lang || 'en'; " +
+            "    if(l=='ar') return type=='save' ? '✅ تم الحفظ بنجاح' : 'جاري التحميل...'; " +
+            "    if(l=='fr') return type=='save' ? '✅ Enregistré avec succès' : 'Téléchargement...'; " +
+            "    return type=='save' ? '✅ Saved successfully' : 'Downloading...'; " +
+            "  } " +
+            "  window.saveAs = function(b, n) { " +
+            "    var r = new FileReader(); " +
+            "    r.onloadend = function() { AndroidBridge.downloadFile(r.result, n, getMsg('save')); }; " +
+            "    r.readAsDataURL(b); " +
+            "  }; " +
+            "  window.HuaweiAds = { " +
+            "    showRewarded: function() { AndroidBridge.showRewardedAd(); }, " +
+            "    showInterstitial: function() { AndroidBridge.showInterstitialAd(); } " +
+            "  }; " +
+            "  window.HuaweiIAP = { " +
+            "    buy: function(id) { AndroidBridge.triggerPurchase(id); } " +
+            "  }; " +
+            "  var old = HTMLAnchorElement.prototype.click; " +
+            "  HTMLAnchorElement.prototype.click = function() { " +
+            "    if (this.href.startsWith('blob:') || this.download) { " +
+            "      var n = this.download || 'file'; " +
+            "      fetch(this.href).then(r => r.blob()).then(b => { " +
+            "        var rd = new FileReader(); rd.onloadend = function() { AndroidBridge.downloadFile(rd.result, n, getMsg('save')); }; rd.readAsDataURL(b); " +
+            "      }); " +
+            "    } else old.call(this); " +
+            "  }; " +
+            "})()");
+    }
+
+    private void loadAndShowRewardedAd() {
+        rewardAd = new RewardAd(this, AD_REWARDED);
+        rewardAd.loadAd(new AdParam.Builder().build(), new RewardAdStatusListener() {
             @Override
-            public void onRewardedLoaded() { rewardAd.show(MainActivity.this, new RewardAdStatusListener() {
-                @Override
-                public void onRewarded(Reward reward) {
-                    webView.loadUrl("javascript:addCredits(25);");
-                    Toast.makeText(MainActivity.this, "Success! +25 Credits added.", Toast.LENGTH_SHORT).show();
-                }
-            }); }
+            public void onRewardAdLoaded() {
+                rewardAd.show(MainActivity.this, new RewardAdStatusListener() {
+                    @Override
+                    public void onRewarded(Reward reward) {
+                        webView.loadUrl("javascript:if(window.onAdRewarded) window.onAdRewarded(" + reward.getAmount() + ");");
+                        Toast.makeText(MainActivity.this, "Reward earned!", Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+        });
+    }
+
+    private void loadAndShowInterstitialAd() {
+        interstitialAd = new InterstitialAd(this);
+        interstitialAd.setAdId(AD_INTERSTITIAL);
+        interstitialAd.loadAd(new AdParam.Builder().build());
+        interstitialAd.setAdListener(new com.huawei.hms.ads.AdListener() {
+            @Override
+            public void onAdLoaded() {
+                if (interstitialAd.isLoaded()) interstitialAd.show(MainActivity.this);
+            }
         });
     }
 
@@ -172,7 +208,16 @@ public class MainActivity extends AppCompatActivity {
                     for (int i=0; i<d.getClipData().getItemCount(); i++) res[i] = d.getClipData().getItemAt(i).getUri();
                 } else if (d.getData() != null) res = new Uri[]{d.getData()};
             }
-            filePathCallback.onReceiveValue(res); filePathCallback = null;
+            filePathCallback.onReceiveValue(res);
+            filePathCallback = null;
+        } else {
+            super.onActivityResult(r, c, d);
         }
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (webView.canGoBack()) webView.goBack();
+        else super.onBackPressed();
     }
 }
